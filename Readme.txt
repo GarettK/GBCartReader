@@ -49,8 +49,15 @@ Wisdom Tree - /Custom_Cartridge_Files/Wisdom_Tree/ - Provided by Benjamin E
 
 REVISION HISTORY
 =================================
+v1.1
+- Speed increases by using direct PORT writing/reading 
+- Compacting functions
+- Delays when pulsing WR/RD/MREQ pins reduced to a few NOP cycles
+---> 2min 43sec run time
+
 v1.0 
 - Made initial working adaption to meet my setup
+---> 13min 10sec run time
 
 
 ----------------------------------------------------------------------------
