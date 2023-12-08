@@ -27,6 +27,9 @@ uint16_t ramSize = 0;
 uint16_t ramBanks = 0;
 uint16_t ramEndAddress = 0;
 
+#include "pindeclarations.h"
+// #include <SPI.h>
+
 void setup() {
   Serial.begin(460800);
   pinMode(latchPin, OUTPUT);
@@ -35,9 +38,10 @@ void setup() {
   pinMode(rdPin, OUTPUT);
   pinMode(wrPin, OUTPUT);
   pinMode(mreqPin, OUTPUT);
-  for (int i = 2; i <= 9; i++) {
-    pinMode(i, INPUT);
-  }
+  
+  // Set pins as inputs
+  DDRB &= ~((1<<PB0) | (1<<PB1)); // D8 & D9
+  DDRD &= ~((1<<PD2) | (1<<PD3) | (1<<PD4) | (1<<PD5) | (1<<PD6) | (1<<PD7)); // D2 to D7
 }
 
 void loop() {
@@ -67,11 +71,13 @@ void loop() {
     for (int addr = 0x0134; addr <= 0x143; addr++) {
       // gameTitle[(addr-0x0134)] = (char) readbank0Address(addr);
       // Swap line above ^^^ with section below if you have issues with non roman characters--below code doesn't support Japanese title
-      char headerChar = (char) readbank0Address(addr);
+      char headerChar = (char) readByte(addr);
       if ((headerChar >= 0x30 && headerChar <= 0x57) || // 0-9
             (headerChar >= 0x41 && headerChar <= 0x5A) || // A-Z
             (headerChar >= 0x61 && headerChar <= 0x7A)) { // a-z
               gameTitle[(addr-0x0134)] = headerChar;
+        } else {
+          gameTitle[(addr-0x0134)] = '0';
         }
     }
     gameTitle[16] = '\0';
@@ -80,16 +86,16 @@ void loop() {
     uint8_t logoCheck = 1;
     uint8_t x = 0;
     for (uint16_t romAddress = 0x0104; romAddress <= 0x133; romAddress++) {
-      if (nintendoLogo[x] != readbank0Address(romAddress)) {
+      if (nintendoLogo[x] != readByte(romAddress)) {
         logoCheck = 0;
         break;
       }
       x++;
     }
 
-    cartridgeType = readbank0Address(0x0147);
-    romSize = readbank0Address(0x0148);
-    ramSize = readbank0Address(0x0149);
+    cartridgeType = readByte(0x0147);
+    romSize = readByte(0x0148);
+    ramSize = readByte(0x0149);
 
     // romBanks = 2; // Default 32K
     // if (romSize == 1) { romBanks = 4; } 
@@ -144,7 +150,7 @@ void loop() {
     
     // Read x number of banks
     for (int bank = 1; bank < romBanks; bank++) {
-      selectROMbank(bank);
+      writeByte(0x2100, bank); // Set ROM bank;
 
       if (bank > 1) {
         addr = 0x4000;
@@ -164,7 +170,7 @@ void loop() {
       while (addr <= 0x7FFF) {
         uint8_t readData[64];
         for (uint8_t i = 0; i < 64; i++) {
-          readData[i] = read_byte(addr+i);
+          readData[i] = readByte(addr+i);
         }
         
         Serial.write(readData, 64); // Send the 64 byte chunk
@@ -177,250 +183,155 @@ void loop() {
   
   // Read RAM
   else if (strstr(readInput, "READRAM")) {
-  
     // MBC2 Fix (unknown why this fixes it, maybe has to read ROM before RAM?)
-    shiftoutAddress(0x0134);
-    
-    Serial.println("START");
+    readByte(0x0134);
+
     unsigned int addr = 0;
     unsigned int endaddr = 0;
     if (cartridgeType == 6 && ramSize == 0) { endaddr = 0xA1FF; } // MBC2 512bytes (nibbles)
     if (ramSize == 1) { endaddr = 0xA7FF; } // 2K RAM
-    if (ramSize == 2 || ramSize == 3) { endaddr = 0xBFFF; } // 8K RAM
+    if (ramSize > 1) { endaddr = 0xBFFF; } // 8K RAM
     
     // Does cartridge have RAM
     if (endaddr > 0) {
-    
       // Initialise MBC
-      shiftoutAddress(0x0000);
-      bankSelect(0x0A);
-      digitalWrite(wrPin, LOW); // WR on
-      digitalWrite(wrPin, HIGH); // WR off
-      
+      writeByte(0x0000, 0x0A);
+
       // Switch RAM banks
       for (int bank = 0; bank < ramBanks; bank++) {
-        shiftoutAddress(0x4000);// Shift out
-        bankSelect(bank); // Select bank
-        digitalWrite(wrPin, LOW); // WR on
-        digitalWrite(wrPin, HIGH); // WR off
-        
-        // Turn outputs off and change back to inputs
-        for (int l = 2; l <= 9; l++) {
-          digitalWrite(l, LOW);
-          pinMode(l, INPUT);
-        }
-        
+        writeByte(0x4000, bank);
+
         // Read RAM
-        for (addr = 0xA000; addr <= endaddr; addr++) {  
-          shiftoutAddress(addr); // Shift out
-          digitalWrite(mreqPin, LOW); // MREQ on
-          digitalWrite(rdPin, LOW); // RD on
-          byte bval = readdataPins(); // Read data pins
-          if (ramSize == 0) { bval |= 0x0F<<4; } // For MBC2
-          digitalWrite(mreqPin, HIGH); // MREQ off
-          digitalWrite(rdPin, HIGH); // RD off
-          Serial.println(bval, DEC);
+        for (addr = 0xA000; addr <= endaddr; addr = addr+64) {  
+          uint8_t readData[64];
+          for(int i = 0; i < 64; i++){
+            readData[i] = readByte(addr+i);
+          }
+          Serial.write(readData, 64);
         }
       }
       
       // Disable RAM
-      shiftoutAddress(0x0000);
-      bankSelect(0x00);
-      digitalWrite(wrPin, LOW); // WR on
-      digitalWrite(wrPin, HIGH); // WR off
-    
-      // Set pins back to inputs
-      for (int l = 2; l <= 9; l++) {
-        pinMode(l, INPUT);
-      }
+      writeByte(0x0000, 0x00);
     }
-    Serial.println("END");
   }
   
   // Write RAM
   else if (strstr(readInput, "WRITERAM")) {
-  
-    // MBC2 Fix (unknown why this fixes it, maybe has to read ROM before RAM?)
-    shiftoutAddress(0x0134);
-    
     Serial.println("START");
+    
+    // MBC2 Fix (unknown why this fixes it, maybe has to read ROM before RAM?)
+    readByte(0x0134);
     unsigned int addr = 0;
     unsigned int endaddr = 0;
     if (cartridgeType == 6 && ramSize == 0) { endaddr = 0xA1FF; } // MBC2 512bytes (nibbles)
     if (ramSize == 1) { endaddr = 0xA7FF; } // 2K RAM
-    if (ramSize == 2 || ramSize == 3) { endaddr = 0xBFFF; } // 8K RAM
+    if (ramSize > 1) { endaddr = 0xBFFF; } // 8K RAM
     
     // Does cartridge have RAM
     if (endaddr > 0) {
-    
       // Initialise MBC
-      shiftoutAddress(0x0000);
-      bankSelect(0x0A);
-      digitalWrite(wrPin, LOW); // WR on
-      digitalWrite(wrPin, HIGH); // WR off
+      writeByte(0x0000, 0x0A);
       
       // Switch RAM banks
       for (int bank = 0; bank < ramBanks; bank++) {
-        shiftoutAddress(0x4000);// Shift out
-        bankSelect(bank); // Select bank
-        digitalWrite(wrPin, LOW); // WR on
-        digitalWrite(wrPin, HIGH); // WR off
+        writeByte(0x4000, bank);
         
         // Write RAM
-        for (addr = 0xA000; addr <= endaddr; addr++) {  
-          shiftoutAddress(addr); // Shift out
-          digitalWrite(mreqPin, LOW); // MREQ on
-          digitalWrite(wrPin, LOW); // WR on
+        for (addr = 0xA000; addr <= endaddr; addr=addr+64) {  
+          Serial.println("NEXT"); // Tell Python script to send next 64bytes
           
           // Wait for serial input
-          int waiting = 0;
-          while (Serial.available() <= 0) {
-            delay(1);
-            if (waiting == 0) {  
-              Serial.println("NEXT"); // Tell Python script to send next 64bytes
-              waiting = 1;
+          for (int i = 0; i < 64; i++) {
+            while (Serial.available() <= 0) {
+              delay(1);
             }
-          }
-    
-          // Decode input
-          byte bval = 0;
-          if (Serial.available() > 0) {
-            char c = Serial.read();
-            bval = (int) c;
-          }
-          
-          // Read the bits in the received character and turn on the 
-          // corresponding D0-D7 pins
-          for (int z = 9; z >= 2; z--) {
-            if (bitRead(bval, z-2) == HIGH) {
-              digitalWrite(z, HIGH);
+            
+            // Read input
+            uint8_t bval = 0;
+            if (Serial.available() > 0) {
+              char c = Serial.read();
+              bval = (int) c;
             }
-            else {
-              digitalWrite(z, LOW);
-            }
+            
+            // Write to RAM
+            mreqPin_low;
+       	    writeByte(addr+i, bval);
+            asm volatile("nop");
+            asm volatile("nop");
+            asm volatile("nop");
+            mreqPin_high;
           }
-          
-          digitalWrite(mreqPin, HIGH); // MREQ off
-          digitalWrite(wrPin, HIGH); // WR off
         }
       }
       
       // Disable RAM
-      shiftoutAddress(0x0000);
-      bankSelect(0x00);
-      digitalWrite(wrPin, LOW); // WR on
-      digitalWrite(wrPin, HIGH); // WR off
-      
-      // Set pins back to inputs
-      for (int l = 2; l <= 9; l++) {
-        pinMode(l, INPUT);
-      }
-      
+      writeByte(0x0000, 0x00);
       Serial.flush(); // Flush any serial data that wasn't processed
     }
     Serial.println("END");
   }
 }
 
-// Read_byte
-uint8_t read_byte(uint16_t address) {
+uint8_t readByte(int address) {
   shiftoutAddress(address); // Shift out address
-  
-  digitalWrite(mreqPin, LOW); // MREQ on
-  digitalWrite(rdPin, LOW); // RD on
+
+  mreqPin_low;
+  rdPin_low;
   asm volatile("nop"); // Delay a little (minimum is 2 nops, using 3 to be sure)
   asm volatile("nop");
   asm volatile("nop");
-  byte bval = readdataPins(); // Read data
-  digitalWrite(rdPin, HIGH); // RD off 
-  digitalWrite(mreqPin, HIGH); // MREQ off
+  uint8_t bval = ((PINB << 6) | (PIND >> 2)); // Read data
+  rdPin_high;
+  mreqPin_high;
   
   return bval;
 }
 
-// Select the ROM bank by writing the bank number on the data pins
-void selectROMbank(int bank) {
-  shiftoutAddress(0x2100); // Shift out
-  bankSelect(bank); // Select the bank
-  digitalWrite(wrPin, LOW); // WR on
-  digitalWrite(wrPin, HIGH); // WR off
-   
-  // Reset outputs to LOW and change back to inputs
-  for (int i = 2; i <= 9; i++) {
-    digitalWrite(i, LOW);
-    pinMode(i, INPUT);
-  }
-}
-
-// Read bank 0 address
-int readbank0Address(unsigned int address) {
+void writeByte(int address, uint8_t data) {
+  // Set pins as outputs
+  DDRB |= ((1<<PB0) | (1<<PB1)); // D8 & D9
+  DDRD |= ((1<<PD2) | (1<<PD3) | (1<<PD4) | (1<<PD5) | (1<<PD6) | (1<<PD7)); // D2 to D7
+  
   shiftoutAddress(address); // Shift out address
-  digitalWrite(rdPin, LOW); // RD on
-  byte bval = readdataPins(); // Read data
-  digitalWrite(rdPin, HIGH); // RD off 
-  return bval;
+  
+  // Clear outputs and set them to the data variable
+  PORTB &= ~((1<<PB0) | (1<<PB1)); // D8 & D9
+  PORTD &= ~((1<<PD2) | (1<<PD3) | (1<<PD4) | (1<<PD5) | (1<<PD6) | (1<<PD7)); // D2 to D7
+  PORTD |= (data << 2);
+  PORTB |= (data >> 6);
+  
+  // Pulse WR
+  wrPin_low;
+  asm volatile("nop");
+  wrPin_high;
+  
+  // Set pins as inputs
+  DDRB &= ~((1<<PB0) | (1<<PB1)); // D8 & D9
+  DDRD &= ~((1<<PD2) | (1<<PD3) | (1<<PD4) | (1<<PD5) | (1<<PD6) | (1<<PD7)); // D2 to D7
 }
 
 // Use the shift registers to shift out the address
 void shiftoutAddress(unsigned int shiftAddress) {
-  digitalWrite(latchPin, LOW);
-  shiftOut(dataPin, clockPin, MSBFIRST, (shiftAddress >> 8));
-  shiftOut(dataPin, clockPin, MSBFIRST, (shiftAddress & 0xFF));
-  digitalWrite(latchPin, HIGH);
-  delayMicroseconds(50);
+  for (int8_t i = 15; i >= 0; i--) {
+    if (shiftAddress & (1<<i)) {
+      dataPin_high;
+    } 
+    else {
+      dataPin_low;
+    }
+    clockPin_high;
+    clockPin_low;
+  }
+  
+  latchPin_low;
+  asm volatile("nop");
+  latchPin_high;
 }
 
 // Turn RD, WR and MREQ to high so they are deselected (reset state)
 void rd_wr_mreq_reset(void) {
-  digitalWrite(rdPin, HIGH); // RD off
-  digitalWrite(wrPin, HIGH); // WR off
-  digitalWrite(mreqPin, HIGH); // MREQ off
-}
-
-// Turn RD, WR and MREQ off as no power should be applied to GB Cart
-void rd_wr_mreq_off(void) {
-  digitalWrite(rdPin, LOW); // RD off
-  digitalWrite(wrPin, LOW); // WR off
-  digitalWrite(mreqPin, LOW); // MREQ off
-}
-
-// Turn on the data lines corresponding to the bank number
-void bankSelect(int bank) {
-  
-  // Change to outputs
-  for (int i = 2; i <= 9; i++) {
-    pinMode(i, OUTPUT);
-  }
-  
-  // Read bits in bank variable
-  for (int z = 9; z >= 2; z--) {
-    if (bitRead(bank, z-2) == HIGH) {
-      digitalWrite(z, HIGH);
-    }
-    else {
-      digitalWrite(z, LOW);
-    }
-  }
-}
-
-// Read data pins
-byte readdataPins() {
-  
-  // Might need this but don't think so. Seems like a waste of time since
-  // pins SHOULD already be set to inputs....
-  //
-  // Change to inputs
-  // for (int i = 2; i <= 9; i++) {
-  //   pinMode(i, INPUT);
-  // }
-  
-  // Read data pins
-  byte bval = 0;
-  for (int z = 9; z >= 2; z--) {
-    if (digitalRead(z) == HIGH) {
-      bitWrite(bval, (z-2), HIGH);
-    }
-  }
-  
-  return bval;
+  rdPin_high; // RD on
+  wrPin_high; // WR on
+  mreqPin_high; // MREQ on
 }
