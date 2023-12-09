@@ -49,6 +49,10 @@ Wisdom Tree - /Custom_Cartridge_Files/Wisdom_Tree/ - Provided by Benjamin E
 
 REVISION HISTORY
 =================================
+v1.2
+- Speed increase by using SPI.transfer for shift registers
+-----> 1min 14sec run time (10.7x faster than original v1.0 method)
+
 v1.1
 - Speed increases by using direct PORT writing/reading 
 - Compacting functions

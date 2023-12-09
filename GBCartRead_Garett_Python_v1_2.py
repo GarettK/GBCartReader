@@ -2,10 +2,13 @@ import serial
 import string
 import sys
 import time
+import atexit
 
-ser = serial.Serial('COM5', 460800, timeout=1) # Change COM2 to the port the Arduino is on
+# Change COM2 to the port the Arduino is on.
+# You can lower the baud rate of 400Kbit if you have issues connecting to the Arduino or the ROM has checksum errors
+ser = serial.Serial('COM5', 300000, timeout=1)
 
-sys.stdout.write('GBCartRead v1.3 by InsideGadgets\n')
+sys.stdout.write('GBCartRead v1.0 by Garett inspired by InsideGadgets\n')
 sys.stdout.write('################################\n')
 sys.stdout.flush()
 
@@ -19,7 +22,7 @@ while (waitInput == 1):
     sys.stdout.write('>')
     sys.stdout.flush()
     userInput = input()
-    
+
     if (userInput == "0"):
         ser.write('HEADER'.encode())
         sys.stdout.write('\n')
@@ -81,9 +84,11 @@ while (waitInput == 1):
             print ('MBC5+RUMBLE+RAM')
         elif (cartridgeType == 30):
             print ('MBC5+RUMBLE+RAM+BATTERY')
+        elif (cartridgeType == 252):
+            print ('Gameboy Camera')
         else:
             print ('Not found')
-            
+    
         sys.stdout.write('ROM size... ')
         romSize = ascii(ser.readline())
         romSize = int(romSize[2:(len(romSize)-5)])
@@ -115,23 +120,25 @@ while (waitInput == 1):
             print ('1.5MByte (96 banks)')
         else:
             print('Not found')
-        
+
         sys.stdout.write('RAM size... ')
         ramSize = ascii(ser.readline())
         ramSize = int(ramSize[2:(len(ramSize)-5)])
         if (ramSize == 0 and cartridgeType == 6):
-            print ('512 bytes (nibbles)\n')
+            print ('512 bytes (nibbles)')
         elif (ramSize == 0):
-            print ('None\n')
+            print ('None')
         elif (ramSize == 1):
-            print ('2 KBytes\n')
+            print ('2 KBytes')
         elif (ramSize == 2):
-            print ('8 KBytes\n')
+            print ('8 KBytes')
         elif (ramSize == 3):
-            print ('32 KBytes (4 banks of 8Kbytes)\n')
+            print ('32 KBytes (4 banks of 8Kbytes)')
+        elif (ramSize == 4):
+            print ('128 KBytes (16 banks of 8Kbytes)')
         else:
-            print ('Not Found\n')
-        
+            print ('Not Found')
+
         sys.stdout.write('Logo Check... ')
         logoCheck = ascii(ser.readline())
         logoCheck = int(logoCheck[2:(len(logoCheck)-5)])

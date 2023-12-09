@@ -28,10 +28,10 @@ uint16_t ramBanks = 0;
 uint16_t ramEndAddress = 0;
 
 #include "pindeclarations.h"
-// #include <SPI.h>
+#include <SPI.h>
 
 void setup() {
-  Serial.begin(460800);
+  Serial.begin(300000);
   pinMode(latchPin, OUTPUT);
   pinMode(clockPin, OUTPUT);
   pinMode(dataPin, OUTPUT);
@@ -42,11 +42,16 @@ void setup() {
   // Set pins as inputs
   DDRB &= ~((1<<PB0) | (1<<PB1)); // D8 & D9
   DDRD &= ~((1<<PD2) | (1<<PD3) | (1<<PD4) | (1<<PD5) | (1<<PD6) | (1<<PD7)); // D2 to D7
+
+  // Setup SPI
+  SPI.begin();
+  SPI.beginTransaction(SPISettings(14000000, MSBFIRST, SPI_MODE0)); // serial 250000  SPI max 14000000
+  // SPI.setBitOrder(MSBFIRST);
+  // SPI.setDataMode(SPI_MODE0);
+  // SPI.setClockDivider(SPI_CLOCK_DIV2);
 }
 
 void loop() {
-  // Serial.println("Loop begin");
-  
   // Wait for serial input
   while (Serial.available() <= 0) {
     delay(200);
@@ -97,24 +102,6 @@ void loop() {
     romSize = readByte(0x0148);
     ramSize = readByte(0x0149);
 
-    // romBanks = 2; // Default 32K
-    // if (romSize == 1) { romBanks = 4; } 
-    // if (romSize == 2) { romBanks = 8; } 
-    // if (romSize == 3) { romBanks = 16; } 
-    // if (romSize == 4) { romBanks = 32; } 
-    // if (romSize == 5 && (cartridgeType == 1 || cartridgeType == 2 || cartridgeType == 3)) { romBanks = 63; } 
-    // else if (romSize == 5) { romBanks = 64; } 
-    // if (romSize == 6 && (cartridgeType == 1 || cartridgeType == 2 || cartridgeType == 3)) { romBanks = 125; } 
-    // else if (romSize == 6) { romBanks = 128; }
-    // if (romSize == 7) { romBanks = 256; }
-    // if (romSize == 82) { romBanks = 72; }
-    // if (romSize == 83) { romBanks = 80; }
-    // if (romSize == 84) { romBanks = 96; }
-    // ramBanks = 1; // Default 8K RAM
-    // if (ramSize == 3) { ramBanks = 4; }
-
-    // Can swap ram setup above with below if you hit any issues using new format and want to revert to old way
-
     // ROM banks
     romBanks = 2; // Default 32K
     if (romSize >= 1) { // Calculate rom size
@@ -144,41 +131,23 @@ void loop() {
   
   // Dump ROM
   else if (strstr(readInput, "READROM")) {
-    // Serial.println("START"); <-- Should kill
-    rd_wr_mreq_reset(); 
+    //rd_wr_mreq_reset();  // Should this be cut for SPI.transfer?
     unsigned int addr = 0;
     
     // Read x number of banks
     for (int bank = 1; bank < romBanks; bank++) {
-      writeByte(0x2100, bank); // Set ROM bank;
-
-      if (bank > 1) {
-        addr = 0x4000;
-      }
+      writeByte(0x2100, bank); // Set ROM bank;S
+      if (bank > 1) {addr = 0x4000;}
     
-      // for (; addr <= 0x7FFF; addr++) {  
-      //   shiftoutAddress(addr); // Shift out
-      //   digitalWrite(rdPin, LOW); // RD on
-      //   byte bval = readdataPins(); // Read data
-      //   digitalWrite(rdPin, HIGH); // RD off 
-      //   Serial.println(bval, DEC);
-      // }
-
-      // Old method above
-
       // Read up to 7FFF per bank
-      while (addr <= 0x7FFF) {
+      for (; addr <= 0x7FFF; addr = addr+64) {
         uint8_t readData[64];
         for (uint8_t i = 0; i < 64; i++) {
           readData[i] = readByte(addr+i);
         }
-        
         Serial.write(readData, 64); // Send the 64 byte chunk
-        addr += 64;
       }
-
     }
-    //Serial.println("END"); <-- Should kill
   }
   
   // Read RAM
@@ -313,16 +282,8 @@ void writeByte(int address, uint8_t data) {
 
 // Use the shift registers to shift out the address
 void shiftoutAddress(unsigned int shiftAddress) {
-  for (int8_t i = 15; i >= 0; i--) {
-    if (shiftAddress & (1<<i)) {
-      dataPin_high;
-    } 
-    else {
-      dataPin_low;
-    }
-    clockPin_high;
-    clockPin_low;
-  }
+  SPI.transfer(shiftAddress >> 8);
+  SPI.transfer(shiftAddress & 0xFF);
   
   latchPin_low;
   asm volatile("nop");
